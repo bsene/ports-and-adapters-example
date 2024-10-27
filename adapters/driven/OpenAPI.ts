@@ -1,3 +1,4 @@
+import { GraphQLClient } from "jsr:@avalero/graphql-client";
 import { Station } from "../../app/station.ts";
 import { ForGettingStationsFromExternalService } from "../../ports/driven/ForGettingStationsFromExternalService.ts";
 import { z } from "https://deno.land/x/zod/mod.ts";
@@ -8,17 +9,41 @@ const stationItemSchema = z.object({
 const stationsSchema = z.array(stationItemSchema);
 type StationData = z.infer<typeof stationItemSchema>;
 
-const { BASE_URL } = Deno.env;
+const OPENAPI_URL = Deno.env.get("OPENAPI_ENDPOINT");
+const ACCESS_TOKEN = Deno.env.get("ACCESS_TOKEN");
 
-export class VoiceApi implements ForGettingStationsFromExternalService {
+export class OpenApi implements ForGettingStationsFromExternalService {
   async getStations(): Promise<Station[]> {
-    const req = await fetch(
-      "https://api.radiofrance.fr/voiceapi/public/stations",
+    if (!OPENAPI_URL) throw new Error("Missing OPENAPI_ENDPOINT env variable.");
+    if (!ACCESS_TOKEN) throw new Error("Missing ACCESS_TOKEN env variable.");
+    const client = new GraphQLClient(OPENAPI_URL);
+
+    const query = await client.query<{
+      brands: {
+        id: string;
+        title: string;
+        baseline: string;
+        description: string;
+        websiteUrl: string;
+        playerUrl: string;
+        liveStream: string;
+      }[];
+    }, undefined>(
+      `query {
+      brands {
+        title
+      }
+    }`,
+      {
+        variables: undefined,
+        headers: {
+          "x-token": ACCESS_TOKEN,
+        },
+      },
     );
-    const data = stationsSchema.parse(await req.json());
 
     const asStations = ({ title }: StationData): Station => new Station(title);
 
-    return data.map(asStations);
+    return query.brands.map(asStations);
   }
 }
